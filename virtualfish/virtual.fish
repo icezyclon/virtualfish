@@ -5,6 +5,17 @@ if not set -q VIRTUALFISH_HOME
     set -g VIRTUALFISH_HOME $HOME/.virtualenvs
 end
 
+
+function _vf_debug
+    echo "--------------------------------------"
+    echo "virtualfish-debug:"
+    echo "VIRTUAL_ENV: $VIRTUAL_ENV"
+    echo "_VF_EXTRA_PATH: $_VF_EXTRA_PATH"
+    echo "fish_user_path: $fish_user_paths"
+    echo "PATH: $PATH"
+    echo "--------------------------------------"
+end
+
 function vf --description "VirtualFish: fish plugin to manage virtualenvs"
     # Check for existence of $VIRTUALFISH_HOME
     if not test -d $VIRTUALFISH_HOME
@@ -65,8 +76,8 @@ function __vf_activate --description "Activate a virtualenv"
     emit virtualenv_will_activate
     emit virtualenv_will_activate:$argv[1]
 
-    set -g _VF_EXTRA_PATH $VIRTUAL_ENV/bin
-    set -gx PATH $_VF_EXTRA_PATH $PATH
+    set -gx _VF_EXTRA_PATH $VIRTUAL_ENV/bin
+    set -g fish_user_paths $_VF_EXTRA_PATH $fish_user_paths
 
     # hide PYTHONHOME, PIP_USER
     if set -q PYTHONHOME
@@ -90,6 +101,7 @@ function __vf_activate --description "Activate a virtualenv"
 
     emit virtualenv_did_activate
     emit virtualenv_did_activate:(basename $VIRTUAL_ENV)
+    _vf_debug
 end
 
 function __vf_deactivate --description "Deactivate this virtualenv"
@@ -114,6 +126,8 @@ function __vf_deactivate --description "Deactivate this virtualenv"
     for i in $to_remove
         set -e PATH[$i]
     end
+    set -g fish_user_paths (string match --invert "$_VF_EXTRA_PATH" $fish_user_paths)
+    set -e _VF_EXTRA_PATH
 
     # restore PYTHONHOME, PIP_USER
     if set -q _VF_OLD_PYTHONHOME
@@ -129,6 +143,7 @@ function __vf_deactivate --description "Deactivate this virtualenv"
     emit virtualenv_did_deactivate:(basename $VIRTUAL_ENV)
 
     set -e VIRTUAL_ENV
+    _vf_debug
 end
 
 function __vfsupport_find_python --description "Search for and return Python path"
@@ -879,4 +894,33 @@ function __vfsupport_check_python --description "Ensure Python/Pip are in a work
     else
         return 0
     end
+end
+
+if set -q VIRTUAL_ENV; and set -q _VF_EXTRA_PATH ; and not contains -- "$_VF_EXTRA_PATH" $fish_user_paths
+    echo "virtualfish-debug: re-ordering PATH"
+    _vf_debug
+
+    # THIS IS COPIED FROM DEACTIVATE
+    # find elements to remove from PATH
+    set to_remove
+    for i in (seq (count $PATH))
+        if contains -- $PATH[$i] $_VF_EXTRA_PATH
+            set to_remove $to_remove $i
+        end
+    end
+
+    # remove them
+    for i in $to_remove
+        set -e PATH[$i]
+    end
+    set -g fish_user_paths (string match --invert "$_VF_EXTRA_PATH" $fish_user_paths)
+    # UNTIL HERE (re-add to fish_user_paths at the front)
+    set -g fish_user_paths $_VF_EXTRA_PATH $fish_user_paths
+
+    _vf_debug
+else if set -q VIRTUAL_ENV; and set -q _VF_EXTRA_PATH
+    # guard against: source <path>/virtual.fish
+    echo "virtualfish-debug: virtualfish reloaded, already in fish_user_paths, nothing to re-order"
+else
+    echo "virtualfish-debug: virtualfish loaded, no virtual environment activated, nothing to re-order"
 end
